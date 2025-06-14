@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -8,9 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { loginUser } from '@/utils/authUtils';
-import { supabase } from '@/integrations/supabase/client';
-import { Eye, EyeOff, Mail } from 'lucide-react';
+import { loginUser, resetPassword } from '@/utils/authUtils';
+import { Eye, EyeOff } from 'lucide-react';
 
 export function LoginForm() {
   const [email, setEmail] = useState('');
@@ -55,19 +53,7 @@ export function LoginForm() {
       navigate('/dashboard');
     } catch (error: any) {
       console.error('Login error:', error);
-      
-      // Provide specific error messages
-      if (error.message?.includes('Invalid login credentials')) {
-        setError('Invalid email or password. Please check your credentials and try again.');
-      } else if (error.message?.includes('Email not confirmed')) {
-        setError('Please check your email and click the confirmation link before logging in.');
-      } else if (error.message?.includes('Too many requests')) {
-        setError('Too many login attempts. Please wait a few minutes and try again.');
-      } else if (error.message?.includes('User not found')) {
-        setError('No account found with this email address. Please sign up first.');
-      } else {
-        setError('Login failed. Please check your email and password and try again.');
-      }
+      setError(error.message || 'Login failed. Please check your email and password and try again.');
     } finally {
       setLoading(false);
     }
@@ -96,16 +82,11 @@ export function LoginForm() {
 
     try {
       setForgotPasswordLoading(true);
-      
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotPasswordEmail.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`
-      });
-
-      if (error) throw error;
+      await resetPassword(forgotPasswordEmail.trim());
 
       toast({
         title: 'Password reset email sent!',
-        description: 'Please check your email for further instructions. If you don\'t receive an email, contact support@socialchat.site'
+        description: 'Please check your email for further instructions.'
       });
       
       setShowForgotPassword(false);
@@ -115,7 +96,7 @@ export function LoginForm() {
       toast({
         variant: 'destructive',
         title: 'Password reset failed',
-        description: 'Unable to send password reset email. For security reasons, password changing is disabled. Please contact support@socialchat.site for assistance.'
+        description: error.message || 'Unable to send password reset email. Please try again.'
       });
     } finally {
       setForgotPasswordLoading(false);
@@ -209,14 +190,6 @@ export function LoginForm() {
                       className="font-pixelated"
                       disabled={forgotPasswordLoading}
                     />
-                  </div>
-                  <div className="bg-muted p-3 rounded-lg">
-                    <p className="text-sm font-pixelated text-muted-foreground">
-                      For security reasons, password changing is disabled. If you need assistance, please contact{' '}
-                      <a href="mailto:support@socialchat.site" className="text-primary underline">
-                        support@socialchat.site
-                      </a>
-                    </p>
                   </div>
                   <div className="flex gap-2">
                     <Button

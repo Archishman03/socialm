@@ -4,10 +4,10 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { Session } from "@supabase/supabase-js";
+import { User } from "firebase/auth";
 import { LoadingScreen } from "@/components/ui/loading-screen";
 import { useTheme } from "@/hooks/use-theme";
+import { authService } from "@/services/firebase/auth";
 
 // Pages
 import Index from "./pages/Index";
@@ -36,7 +36,7 @@ const queryClient = new QueryClient({
 });
 
 const App = () => {
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const { theme, colorTheme, setTheme, setColorTheme } = useTheme();
   
@@ -61,33 +61,16 @@ const App = () => {
   }, [theme, colorTheme, setTheme, setColorTheme]);
   
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.id);
-        
-        if (event === 'SIGNED_OUT') {
-          setSession(null);
-          setLoading(false);
-          localStorage.clear();
-          sessionStorage.clear();
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-          setSession(session);
-          setLoading(false);
-        } else if (event === 'INITIAL_SESSION') {
-          setSession(session);
-          setLoading(false);
-        } else {
-          setSession(session);
-          setLoading(false);
-        }
+    // Listen for auth state changes
+    const unsubscribe = authService.onAuthStateChanged((user) => {
+      console.log('Auth state changed:', user?.uid);
+      setUser(user);
+      setLoading(false);
+      
+      if (!user) {
+        localStorage.clear();
+        sessionStorage.clear();
       }
-    );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('Initial session check:', session?.user?.id);
-      setSession(session);
-      // Add a small delay to show the loading animation
-      setTimeout(() => setLoading(false), 1500);
     });
 
     // Request notification permission on app load
@@ -101,9 +84,7 @@ const App = () => {
       }
     }
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
   
   if (loading) {
@@ -120,15 +101,15 @@ const App = () => {
             {/* Public Routes */}
             <Route 
               path="/" 
-              element={session ? <Navigate to="/dashboard" replace /> : <Index />} 
+              element={user ? <Navigate to="/dashboard" replace /> : <Index />} 
             />
             <Route 
               path="/login" 
-              element={session ? <Navigate to="/dashboard" replace /> : <Login />} 
+              element={user ? <Navigate to="/dashboard" replace /> : <Login />} 
             />
             <Route 
               path="/register" 
-              element={session ? <Navigate to="/dashboard" replace /> : <Register />} 
+              element={user ? <Navigate to="/dashboard" replace /> : <Register />} 
             />
             
             {/* Protected Routes */}

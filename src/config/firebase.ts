@@ -1,23 +1,30 @@
 import { initializeApp } from 'firebase/app';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAXDc6PR-m2MBa0oklp9ObJggDmnvvn4RQ",
-  authDomain: "mzsocialchat.firebaseapp.com",
-  projectId: "mzsocialchat",
-  storageBucket: "mzsocialchat.firebasestorage.app",
-  messagingSenderId: "1070261752972",
-  appId: "1:1070261752972:web:34575b057039e81e0997a9",
-  measurementId: "G-RDCJQCQQ62"
+  apiKey: "AIzaSyCUoCrl4lm-eyYn6axfGBRPHmSVIv4AOlQ",
+  authDomain: "socialchat-b6382.firebaseapp.com",
+  projectId: "socialchat-b6382",
+  storageBucket: "socialchat-b6382.firebasestorage.app",
+  messagingSenderId: "753198655677",
+  appId: "1:753198655677:web:942fc9658bfc05e69eafd4",
+  measurementId: "G-JQ817X706H"
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firebase Cloud Messaging and get a reference to the service
+// Initialize Firebase services
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
+
+// Initialize Firebase Cloud Messaging
 let messaging: any = null;
 
-// Check if messaging is supported
 const initializeMessaging = async () => {
   try {
     const supported = await isSupported();
@@ -29,14 +36,23 @@ const initializeMessaging = async () => {
   }
 };
 
-// Initialize messaging
 initializeMessaging();
 
-export { app, messaging };
+export { messaging };
 
-// Enhanced notification service for future in-app notifications
+// Connect to emulators in development
+if (process.env.NODE_ENV === 'development') {
+  try {
+    connectAuthEmulator(auth, 'http://localhost:9099');
+    connectFirestoreEmulator(db, 'localhost', 8080);
+    connectStorageEmulator(storage, 'localhost', 9199);
+  } catch (error) {
+    console.log('Emulators not available, using production Firebase');
+  }
+}
+
+// Enhanced notification service
 export const NotificationService = {
-  // Initialize Firebase messaging for in-app notifications
   async initialize() {
     try {
       if (!messaging) return null;
@@ -53,22 +69,20 @@ export const NotificationService = {
     }
   },
 
-  // Get FCM token for device registration (future use)
   async getToken() {
     try {
       if (!messaging) return null;
       
-      // Note: You'll need to add your VAPID key from Firebase Console
-      // const token = await getToken(messaging, { vapidKey: 'YOUR_VAPID_KEY' });
-      console.log('FCM token ready for future implementation');
-      return 'token-placeholder';
+      const token = await getToken(messaging, { 
+        vapidKey: 'YOUR_VAPID_KEY' // You'll need to add this from Firebase Console
+      });
+      return token;
     } catch (error) {
       console.error('Error getting FCM token:', error);
       return null;
     }
   },
 
-  // Listen for foreground messages (future use)
   onMessage(callback: (payload: any) => void) {
     if (!messaging) return () => {};
     
@@ -78,11 +92,9 @@ export const NotificationService = {
     });
   },
 
-  // Send notification to specific user (backend integration ready)
   async sendNotificationToUser(userId: string, title: string, body: string, data?: any) {
     try {
-      // This will be implemented when backend Firebase integration is added
-      console.log('Notification ready for backend integration:', {
+      console.log('Notification ready for Firebase backend integration:', {
         userId,
         title,
         body,
@@ -90,8 +102,6 @@ export const NotificationService = {
         timestamp: new Date().toISOString()
       });
       
-      // For now, create in-app notification in Supabase
-      // This maintains current functionality while preparing for Firebase
       return {
         success: true,
         message: 'Notification prepared for Firebase backend integration'
@@ -106,32 +116,4 @@ export const NotificationService = {
   }
 };
 
-// Request permission and get FCM token (future use)
-export const requestNotificationPermission = async () => {
-  try {
-    if (!messaging) return null;
-    
-    const permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      console.log('Notification permission granted');
-      return 'permission-granted';
-    }
-    return null;
-  } catch (error) {
-    console.error('Error getting notification permission:', error);
-    return null;
-  }
-};
-
-// Listen for foreground messages
-export const onMessageListener = () =>
-  new Promise((resolve) => {
-    if (!messaging) {
-      resolve(null);
-      return;
-    }
-    
-    onMessage(messaging, (payload) => {
-      resolve(payload);
-    });
-  });
+export default app;

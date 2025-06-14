@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff, CheckCircle, XCircle } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
+import { registerUser } from '@/utils/authUtils';
+import { authService } from '@/services/firebase/auth';
 
 export function RegisterForm() {
   const [email, setEmail] = useState('');
@@ -18,7 +19,6 @@ export function RegisterForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState<'checking' | 'available' | 'taken' | 'invalid' | 'idle'>('idle');
-  const [emailStatus, setEmailStatus] = useState<'checking' | 'available' | 'taken' | 'idle'>('idle');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -39,19 +39,8 @@ export function RegisterForm() {
     const timeoutId = setTimeout(async () => {
       setUsernameStatus('checking');
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('username')
-          .eq('username', username.toLowerCase())
-          .single();
-
-        if (error && error.code === 'PGRST116') {
-          // No rows returned - username is available
-          setUsernameStatus('available');
-        } else if (data) {
-          // Username exists
-          setUsernameStatus('taken');
-        }
+        const exists = await authService.checkUsernameExists(username.toLowerCase());
+        setUsernameStatus(exists ? 'taken' : 'available');
       } catch (error) {
         setUsernameStatus('idle');
       }
@@ -59,39 +48,6 @@ export function RegisterForm() {
 
     return () => clearTimeout(timeoutId);
   }, [username]);
-
-  // Check email availability
-  useEffect(() => {
-    if (!email.includes('@')) {
-      setEmailStatus('idle');
-      return;
-    }
-
-    const timeoutId = setTimeout(async () => {
-      setEmailStatus('checking');
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password: 'dummy_password_for_check'
-        });
-
-        if (error?.message?.includes('Invalid login credentials')) {
-          // Email not found - available
-          setEmailStatus('available');
-        } else if (error?.message?.includes('Email not confirmed')) {
-          // Email exists but not confirmed
-          setEmailStatus('taken');
-        } else {
-          // Other error or success means email exists
-          setEmailStatus('taken');
-        }
-      } catch (error) {
-        setEmailStatus('idle');
-      }
-    }, 800);
-
-    return () => clearTimeout(timeoutId);
-  }, [email]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,32 +71,17 @@ export function RegisterForm() {
         throw new Error('Username can only contain letters, numbers, and underscores');
       }
 
-      if (emailStatus === 'taken') {
-        throw new Error('An account with this email already exists');
-      }
-
       if (!acceptedTerms) {
         throw new Error('Please accept the terms and conditions');
       }
 
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            name: name.trim(),
-            username: username.toLowerCase().trim(),
-          },
-        },
-      });
+      const result = await registerUser(email.trim(), password, name.trim(), username.toLowerCase().trim());
 
-      if (error) throw error;
-
-      if (data.user) {
+      if (result.user) {
         setRegistrationSuccess(true);
         toast({
           title: 'Registration successful!',
-          description: 'Please check your email to confirm your account before logging in.',
+          description: 'Your account has been created successfully.',
         });
       }
     } catch (error: any) {
@@ -160,26 +101,23 @@ export function RegisterForm() {
       <Card className="w-full max-w-md mx-auto">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-pixelated social-gradient bg-clip-text text-transparent">
-            Check Your Email
+            Welcome to SocialChat!
           </CardTitle>
           <CardDescription className="font-pixelated">
-            We've sent you a confirmation email
+            Your account has been created successfully
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="text-center space-y-2">
             <p className="font-pixelated text-sm text-muted-foreground">
-              Please check your email inbox (and spam folder) for a confirmation link.
-            </p>
-            <p className="font-pixelated text-sm text-muted-foreground">
-              After confirming your email, you can log in to your account.
+              You can now start connecting with friends and sharing your thoughts!
             </p>
           </div>
           <Button 
-            onClick={() => navigate('/login')} 
+            onClick={() => navigate('/dashboard')} 
             className="w-full font-pixelated"
           >
-            Go to Login
+            Get Started
           </Button>
         </CardContent>
       </Card>
@@ -265,46 +203,15 @@ export function RegisterForm() {
 
           <div className="space-y-2">
             <Label htmlFor="email" className="font-pixelated">Email</Label>
-            <div className="relative">
-              <Input
-                id="email"
-                type="email"
-                placeholder="Enter your email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className={`font-pixelated pr-10 ${
-                  emailStatus === 'taken' 
-                    ? 'border-red-500 focus:ring-red-500' 
-                    : emailStatus === 'available'
-                    ? 'border-green-500 focus:ring-green-500'
-                    : ''
-                }`}
-              />
-              {email.includes('@') && (
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  {emailStatus === 'checking' && (
-                    <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
-                  )}
-                  {emailStatus === 'available' && (
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                  )}
-                  {emailStatus === 'taken' && (
-                    <XCircle className="w-4 h-4 text-red-500" />
-                  )}
-                </div>
-              )}
-            </div>
-            {email.includes('@') && (
-              <p className={`font-pixelated text-xs ${
-                emailStatus === 'available' ? 'text-green-600' :
-                emailStatus === 'taken' ? 'text-red-600' : 'text-gray-500'
-              }`}>
-                {emailStatus === 'checking' && 'Checking availability...'}
-                {emailStatus === 'available' && 'Email is available'}
-                {emailStatus === 'taken' && 'Email is already registered'}
-              </p>
-            )}
+            <Input
+              id="email"
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="font-pixelated"
+            />
           </div>
 
           <div className="space-y-2">
@@ -368,7 +275,7 @@ export function RegisterForm() {
           <Button 
             type="submit" 
             className="w-full bg-social-green hover:bg-social-light-green text-white font-pixelated" 
-            disabled={loading || usernameStatus === 'taken' || emailStatus === 'taken' || usernameStatus === 'checking' || emailStatus === 'checking' || usernameStatus === 'invalid' || !acceptedTerms}
+            disabled={loading || usernameStatus === 'taken' || usernameStatus === 'checking' || usernameStatus === 'invalid' || !acceptedTerms}
           >
             {loading ? 'Creating Account...' : 'Create Account'}
           </Button>
