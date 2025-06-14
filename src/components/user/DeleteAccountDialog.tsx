@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AlertTriangle } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { deleteUser } from 'firebase/auth';
+import { doc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 
 interface DeleteAccountDialogProps {
@@ -23,52 +25,84 @@ export function DeleteAccountDialog({ open, onOpenChange, onAccountDeleted }: De
 
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = auth.currentUser;
       
       if (!user) {
         throw new Error('No user found');
       }
 
+      const batch = writeBatch(db);
+
       // Delete user's posts
-      await supabase
-        .from('posts')
-        .delete()
-        .eq('user_id', user.id);
+      const postsQuery = query(collection(db, 'posts'), where('user_id', '==', user.uid));
+      const postsSnapshot = await getDocs(postsQuery);
+      postsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
 
       // Delete user's comments
-      await supabase
-        .from('comments')
-        .delete()
-        .eq('user_id', user.id);
+      const commentsQuery = query(collection(db, 'comments'), where('user_id', '==', user.uid));
+      const commentsSnapshot = await getDocs(commentsQuery);
+      commentsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
 
       // Delete user's likes
-      await supabase
-        .from('likes')
-        .delete()
-        .eq('user_id', user.id);
+      const likesQuery = query(collection(db, 'likes'), where('user_id', '==', user.uid));
+      const likesSnapshot = await getDocs(likesQuery);
+      likesSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
 
       // Delete user's friend connections
-      await supabase
-        .from('friends')
-        .delete()
-        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
+      const friendsQuery1 = query(collection(db, 'friends'), where('sender_id', '==', user.uid));
+      const friendsSnapshot1 = await getDocs(friendsQuery1);
+      friendsSnapshot1.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      const friendsQuery2 = query(collection(db, 'friends'), where('receiver_id', '==', user.uid));
+      const friendsSnapshot2 = await getDocs(friendsQuery2);
+      friendsSnapshot2.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
 
       // Delete user's messages
-      await supabase
-        .from('messages')
-        .delete()
-        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`);
+      const messagesQuery1 = query(collection(db, 'messages'), where('sender_id', '==', user.uid));
+      const messagesSnapshot1 = await getDocs(messagesQuery1);
+      messagesSnapshot1.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      const messagesQuery2 = query(collection(db, 'messages'), where('receiver_id', '==', user.uid));
+      const messagesSnapshot2 = await getDocs(messagesQuery2);
+      messagesSnapshot2.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      // Delete user's notifications
+      const notificationsQuery = query(collection(db, 'notifications'), where('user_id', '==', user.uid));
+      const notificationsSnapshot = await getDocs(notificationsQuery);
+      notificationsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      // Delete user's stories
+      const storiesQuery = query(collection(db, 'stories'), where('user_id', '==', user.uid));
+      const storiesSnapshot = await getDocs(storiesQuery);
+      storiesSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
 
       // Delete user's profile
-      await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', user.id);
+      const userRef = doc(db, 'users', user.uid);
+      batch.delete(userRef);
+
+      // Commit all deletions
+      await batch.commit();
 
       // Finally, delete the user's auth account
-      const { error } = await supabase.auth.admin.deleteUser(user.id);
-      
-      if (error) throw error;
+      await deleteUser(user);
 
       toast({
         title: 'Account deleted',

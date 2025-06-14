@@ -4,477 +4,487 @@ import {
   addDoc, 
   updateDoc, 
   deleteDoc, 
+  getDoc, 
   getDocs, 
-  getDoc,
   query, 
   where, 
   orderBy, 
   limit,
   onSnapshot,
   serverTimestamp,
-  Timestamp,
-  writeBatch
+  writeBatch,
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
-export interface Post {
-  id?: string;
-  user_id: string;
-  content: string;
-  image_url?: string;
-  video_url?: string;
-  visibility: 'public' | 'friends';
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface Comment {
-  id?: string;
-  post_id: string;
-  user_id: string;
-  content: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface Like {
-  id?: string;
-  post_id: string;
-  user_id: string;
-  created_at: Date;
-}
-
-export interface Message {
-  id?: string;
-  sender_id: string;
-  receiver_id: string;
-  content: string;
-  message_type: string;
-  read: boolean;
-  created_at: Date;
-}
-
-export interface Friend {
-  id?: string;
-  sender_id: string;
-  receiver_id: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface Notification {
-  id?: string;
-  user_id: string;
-  type: string;
-  content: string;
-  reference_id?: string;
-  read: boolean;
-  deleted_at?: Date;
-  created_at: Date;
-}
-
-export interface Story {
-  id?: string;
-  user_id: string;
-  image_url?: string;
-  photo_urls?: string[];
-  photo_metadata?: any[];
-  views_count: number;
-  created_at: Date;
-  expires_at: Date;
-}
-
-export const firestoreService = {
-  // Posts
-  async createPost(post: Omit<Post, 'id' | 'created_at' | 'updated_at'>) {
-    try {
-      const docRef = await addDoc(collection(db, 'posts'), {
-        ...post,
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp()
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error creating post:', error);
-      throw error;
-    }
-  },
-
-  async getPosts(userId?: string) {
-    try {
-      let q = query(collection(db, 'posts'), orderBy('created_at', 'desc'));
-      
-      if (userId) {
-        q = query(collection(db, 'posts'), where('user_id', '==', userId), orderBy('created_at', 'desc'));
-      }
-
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date(),
-        updated_at: doc.data().updated_at?.toDate() || new Date()
-      })) as Post[];
-    } catch (error) {
-      console.error('Error getting posts:', error);
-      throw error;
-    }
-  },
-
-  async updatePost(postId: string, updates: Partial<Post>) {
-    try {
-      const docRef = doc(db, 'posts', postId);
-      await updateDoc(docRef, {
-        ...updates,
-        updated_at: serverTimestamp()
-      });
-    } catch (error) {
-      console.error('Error updating post:', error);
-      throw error;
-    }
-  },
-
-  async deletePost(postId: string) {
-    try {
-      await deleteDoc(doc(db, 'posts', postId));
-    } catch (error) {
-      console.error('Error deleting post:', error);
-      throw error;
-    }
-  },
-
-  // Comments
-  async createComment(comment: Omit<Comment, 'id' | 'created_at' | 'updated_at'>) {
-    try {
-      const docRef = await addDoc(collection(db, 'comments'), {
-        ...comment,
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp()
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error creating comment:', error);
-      throw error;
-    }
-  },
-
-  async getComments(postId: string) {
-    try {
-      const q = query(
-        collection(db, 'comments'), 
-        where('post_id', '==', postId),
-        orderBy('created_at', 'asc')
-      );
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date(),
-        updated_at: doc.data().updated_at?.toDate() || new Date()
-      })) as Comment[];
-    } catch (error) {
-      console.error('Error getting comments:', error);
-      throw error;
-    }
-  },
-
-  // Likes
-  async createLike(like: Omit<Like, 'id' | 'created_at'>) {
-    try {
-      const docRef = await addDoc(collection(db, 'likes'), {
-        ...like,
-        created_at: serverTimestamp()
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error creating like:', error);
-      throw error;
-    }
-  },
-
-  async deleteLike(postId: string, userId: string) {
-    try {
-      const q = query(
-        collection(db, 'likes'),
-        where('post_id', '==', postId),
-        where('user_id', '==', userId)
-      );
-      const querySnapshot = await getDocs(q);
-      querySnapshot.docs.forEach(async (doc) => {
-        await deleteDoc(doc.ref);
-      });
-    } catch (error) {
-      console.error('Error deleting like:', error);
-      throw error;
-    }
-  },
-
-  async getLikes(postId: string) {
-    try {
-      const q = query(collection(db, 'likes'), where('post_id', '==', postId));
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date()
-      })) as Like[];
-    } catch (error) {
-      console.error('Error getting likes:', error);
-      throw error;
-    }
-  },
-
-  // Messages
-  async createMessage(message: Omit<Message, 'id' | 'created_at'>) {
-    try {
-      const docRef = await addDoc(collection(db, 'messages'), {
-        ...message,
-        created_at: serverTimestamp()
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error creating message:', error);
-      throw error;
-    }
-  },
-
-  async getMessages(userId1: string, userId2: string) {
-    try {
-      const q = query(
-        collection(db, 'messages'),
-        where('sender_id', 'in', [userId1, userId2]),
-        where('receiver_id', 'in', [userId1, userId2]),
-        orderBy('created_at', 'asc')
-      );
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date()
-      })) as Message[];
-    } catch (error) {
-      console.error('Error getting messages:', error);
-      throw error;
-    }
-  },
-
-  async markMessageAsRead(messageId: string) {
-    try {
-      const docRef = doc(db, 'messages', messageId);
-      await updateDoc(docRef, { read: true });
-    } catch (error) {
-      console.error('Error marking message as read:', error);
-      throw error;
-    }
-  },
-
-  // Friends
-  async createFriendRequest(friendRequest: Omit<Friend, 'id' | 'created_at' | 'updated_at'>) {
-    try {
-      const docRef = await addDoc(collection(db, 'friends'), {
-        ...friendRequest,
-        created_at: serverTimestamp(),
-        updated_at: serverTimestamp()
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error creating friend request:', error);
-      throw error;
-    }
-  },
-
-  async updateFriendRequest(friendId: string, status: 'accepted' | 'rejected') {
-    try {
-      const docRef = doc(db, 'friends', friendId);
-      await updateDoc(docRef, {
-        status,
-        updated_at: serverTimestamp()
-      });
-    } catch (error) {
-      console.error('Error updating friend request:', error);
-      throw error;
-    }
-  },
-
-  async getFriends(userId: string) {
-    try {
-      const q1 = query(
-        collection(db, 'friends'),
-        where('sender_id', '==', userId),
-        where('status', '==', 'accepted')
-      );
-      const q2 = query(
-        collection(db, 'friends'),
-        where('receiver_id', '==', userId),
-        where('status', '==', 'accepted')
-      );
-
-      const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-      
-      const friends = [
-        ...snapshot1.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          created_at: doc.data().created_at?.toDate() || new Date(),
-          updated_at: doc.data().updated_at?.toDate() || new Date()
-        })),
-        ...snapshot2.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data(),
-          created_at: doc.data().created_at?.toDate() || new Date(),
-          updated_at: doc.data().updated_at?.toDate() || new Date()
-        }))
-      ] as Friend[];
-
-      return friends;
-    } catch (error) {
-      console.error('Error getting friends:', error);
-      throw error;
-    }
-  },
-
-  // Notifications
-  async createNotification(notification: Omit<Notification, 'id' | 'created_at'>) {
-    try {
-      const docRef = await addDoc(collection(db, 'notifications'), {
-        ...notification,
-        created_at: serverTimestamp()
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error creating notification:', error);
-      throw error;
-    }
-  },
-
-  async getNotifications(userId: string) {
-    try {
-      const q = query(
-        collection(db, 'notifications'),
-        where('user_id', '==', userId),
-        where('deleted_at', '==', null),
-        orderBy('created_at', 'desc')
-      );
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date(),
-        deleted_at: doc.data().deleted_at?.toDate()
-      })) as Notification[];
-    } catch (error) {
-      console.error('Error getting notifications:', error);
-      throw error;
-    }
-  },
-
-  async markNotificationAsRead(notificationId: string) {
-    try {
-      const docRef = doc(db, 'notifications', notificationId);
-      await updateDoc(docRef, { read: true });
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-      throw error;
-    }
-  },
-
-  async deleteNotification(notificationId: string) {
-    try {
-      const docRef = doc(db, 'notifications', notificationId);
-      await updateDoc(docRef, { deleted_at: serverTimestamp() });
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      throw error;
-    }
-  },
-
-  // Stories
-  async createStory(story: Omit<Story, 'id' | 'created_at' | 'expires_at'>) {
-    try {
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24); // Stories expire after 24 hours
-
-      const docRef = await addDoc(collection(db, 'stories'), {
-        ...story,
-        created_at: serverTimestamp(),
-        expires_at: Timestamp.fromDate(expiresAt)
-      });
-      return docRef.id;
-    } catch (error) {
-      console.error('Error creating story:', error);
-      throw error;
-    }
-  },
-
-  async getStories() {
-    try {
-      const now = new Date();
-      const q = query(
-        collection(db, 'stories'),
-        where('expires_at', '>', Timestamp.fromDate(now)),
-        orderBy('expires_at'),
-        orderBy('created_at', 'desc')
-      );
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date(),
-        expires_at: doc.data().expires_at?.toDate() || new Date()
-      })) as Story[];
-    } catch (error) {
-      console.error('Error getting stories:', error);
-      throw error;
-    }
-  },
-
-  // Real-time listeners
-  onPostsSnapshot(callback: (posts: Post[]) => void) {
-    const q = query(collection(db, 'posts'), orderBy('created_at', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-      const posts = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date(),
-        updated_at: doc.data().updated_at?.toDate() || new Date()
-      })) as Post[];
-      callback(posts);
+// User Profile Operations
+export const createUserProfile = async (userId: string, userData: any) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      ...userData,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp()
     });
-  },
+    return { success: true };
+  } catch (error) {
+    console.error('Error creating user profile:', error);
+    throw error;
+  }
+};
 
-  onMessagesSnapshot(userId1: string, userId2: string, callback: (messages: Message[]) => void) {
+export const getUserProfile = async (userId: string) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      return { id: userDoc.id, ...userDoc.data() };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting user profile:', error);
+    throw error;
+  }
+};
+
+export const updateUserProfile = async (userId: string, updates: any) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      ...updates,
+      updated_at: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    throw error;
+  }
+};
+
+// Posts Operations
+export const createPost = async (postData: any) => {
+  try {
+    const postsRef = collection(db, 'posts');
+    const docRef = await addDoc(postsRef, {
+      ...postData,
+      created_at: serverTimestamp(),
+      updated_at: serverTimestamp()
+    });
+    return { id: docRef.id, success: true };
+  } catch (error) {
+    console.error('Error creating post:', error);
+    throw error;
+  }
+};
+
+export const getPosts = async (userId?: string) => {
+  try {
+    let q;
+    if (userId) {
+      q = query(
+        collection(db, 'posts'),
+        where('user_id', '==', userId),
+        orderBy('created_at', 'desc')
+      );
+    } else {
+      q = query(
+        collection(db, 'posts'),
+        orderBy('created_at', 'desc')
+      );
+    }
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error('Error getting posts:', error);
+    throw error;
+  }
+};
+
+export const updatePost = async (postId: string, updates: any) => {
+  try {
+    const postRef = doc(db, 'posts', postId);
+    await updateDoc(postRef, {
+      ...updates,
+      updated_at: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating post:', error);
+    throw error;
+  }
+};
+
+export const deletePost = async (postId: string) => {
+  try {
+    const postRef = doc(db, 'posts', postId);
+    await deleteDoc(postRef);
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting post:', error);
+    throw error;
+  }
+};
+
+// Comments Operations
+export const createComment = async (commentData: any) => {
+  try {
+    const commentsRef = collection(db, 'comments');
+    const docRef = await addDoc(commentsRef, {
+      ...commentData,
+      created_at: serverTimestamp()
+    });
+    return { id: docRef.id, success: true };
+  } catch (error) {
+    console.error('Error creating comment:', error);
+    throw error;
+  }
+};
+
+export const getComments = async (postId: string) => {
+  try {
     const q = query(
-      collection(db, 'messages'),
-      where('sender_id', 'in', [userId1, userId2]),
-      where('receiver_id', 'in', [userId1, userId2]),
+      collection(db, 'comments'),
+      where('post_id', '==', postId),
       orderBy('created_at', 'asc')
     );
-    return onSnapshot(q, (snapshot) => {
-      const messages = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date()
-      })) as Message[];
-      callback(messages);
-    });
-  },
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error('Error getting comments:', error);
+    throw error;
+  }
+};
 
-  onNotificationsSnapshot(userId: string, callback: (notifications: Notification[]) => void) {
+// Likes Operations
+export const createLike = async (likeData: any) => {
+  try {
+    const likesRef = collection(db, 'likes');
+    const docRef = await addDoc(likesRef, {
+      ...likeData,
+      created_at: serverTimestamp()
+    });
+    return { id: docRef.id, success: true };
+  } catch (error) {
+    console.error('Error creating like:', error);
+    throw error;
+  }
+};
+
+export const deleteLike = async (likeId: string) => {
+  try {
+    const likeRef = doc(db, 'likes', likeId);
+    await deleteDoc(likeRef);
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting like:', error);
+    throw error;
+  }
+};
+
+export const getLikes = async (postId: string) => {
+  try {
+    const q = query(
+      collection(db, 'likes'),
+      where('post_id', '==', postId)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error('Error getting likes:', error);
+    throw error;
+  }
+};
+
+// Friends Operations
+export const sendFriendRequest = async (senderId: string, receiverId: string) => {
+  try {
+    const friendsRef = collection(db, 'friends');
+    const docRef = await addDoc(friendsRef, {
+      sender_id: senderId,
+      receiver_id: receiverId,
+      status: 'pending',
+      created_at: serverTimestamp()
+    });
+    return { id: docRef.id, success: true };
+  } catch (error) {
+    console.error('Error sending friend request:', error);
+    throw error;
+  }
+};
+
+export const acceptFriendRequest = async (friendshipId: string) => {
+  try {
+    const friendRef = doc(db, 'friends', friendshipId);
+    await updateDoc(friendRef, {
+      status: 'accepted',
+      updated_at: serverTimestamp()
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error accepting friend request:', error);
+    throw error;
+  }
+};
+
+export const rejectFriendRequest = async (friendshipId: string) => {
+  try {
+    const friendRef = doc(db, 'friends', friendshipId);
+    await deleteDoc(friendRef);
+    return { success: true };
+  } catch (error) {
+    console.error('Error rejecting friend request:', error);
+    throw error;
+  }
+};
+
+export const getFriends = async (userId: string) => {
+  try {
+    const q = query(
+      collection(db, 'friends'),
+      where('status', '==', 'accepted')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const friends = querySnapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(friend => 
+        friend.sender_id === userId || friend.receiver_id === userId
+      );
+    
+    return friends;
+  } catch (error) {
+    console.error('Error getting friends:', error);
+    throw error;
+  }
+};
+
+// Messages Operations
+export const sendMessage = async (messageData: any) => {
+  try {
+    const messagesRef = collection(db, 'messages');
+    const docRef = await addDoc(messagesRef, {
+      ...messageData,
+      created_at: serverTimestamp(),
+      read: false
+    });
+    return { id: docRef.id, success: true };
+  } catch (error) {
+    console.error('Error sending message:', error);
+    throw error;
+  }
+};
+
+export const getMessages = async (userId1: string, userId2: string) => {
+  try {
+    const q = query(
+      collection(db, 'messages'),
+      orderBy('created_at', 'asc')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const messages = querySnapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(message => 
+        (message.sender_id === userId1 && message.receiver_id === userId2) ||
+        (message.sender_id === userId2 && message.receiver_id === userId1)
+      );
+    
+    return messages;
+  } catch (error) {
+    console.error('Error getting messages:', error);
+    throw error;
+  }
+};
+
+export const markMessageAsRead = async (messageId: string) => {
+  try {
+    const messageRef = doc(db, 'messages', messageId);
+    await updateDoc(messageRef, {
+      read: true
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error marking message as read:', error);
+    throw error;
+  }
+};
+
+// Notifications Operations
+export const createNotification = async (notificationData: any) => {
+  try {
+    const notificationsRef = collection(db, 'notifications');
+    const docRef = await addDoc(notificationsRef, {
+      ...notificationData,
+      created_at: serverTimestamp(),
+      read: false
+    });
+    return { id: docRef.id, success: true };
+  } catch (error) {
+    console.error('Error creating notification:', error);
+    throw error;
+  }
+};
+
+export const getNotifications = async (userId: string) => {
+  try {
     const q = query(
       collection(db, 'notifications'),
       where('user_id', '==', userId),
       where('deleted_at', '==', null),
       orderBy('created_at', 'desc')
     );
-    return onSnapshot(q, (snapshot) => {
-      const notifications = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        created_at: doc.data().created_at?.toDate() || new Date(),
-        deleted_at: doc.data().deleted_at?.toDate()
-      })) as Notification[];
-      callback(notifications);
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error('Error getting notifications:', error);
+    throw error;
+  }
+};
+
+export const markNotificationAsRead = async (notificationId: string) => {
+  try {
+    const notificationRef = doc(db, 'notifications', notificationId);
+    await updateDoc(notificationRef, {
+      read: true
     });
+    return { success: true };
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    throw error;
+  }
+};
+
+// Stories Operations
+export const createStory = async (storyData: any) => {
+  try {
+    const storiesRef = collection(db, 'stories');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours from now
+    
+    const docRef = await addDoc(storiesRef, {
+      ...storyData,
+      created_at: serverTimestamp(),
+      expires_at: Timestamp.fromDate(expiresAt),
+      views_count: 0
+    });
+    return { id: docRef.id, success: true };
+  } catch (error) {
+    console.error('Error creating story:', error);
+    throw error;
+  }
+};
+
+export const getStories = async () => {
+  try {
+    const now = new Date();
+    const q = query(
+      collection(db, 'stories'),
+      where('expires_at', '>', Timestamp.fromDate(now)),
+      orderBy('expires_at', 'desc'),
+      orderBy('created_at', 'desc')
+    );
+    
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error('Error getting stories:', error);
+    throw error;
+  }
+};
+
+export const incrementStoryViews = async (storyId: string) => {
+  try {
+    const storyRef = doc(db, 'stories', storyId);
+    const storyDoc = await getDoc(storyRef);
+    
+    if (storyDoc.exists()) {
+      const currentViews = storyDoc.data().views_count || 0;
+      await updateDoc(storyRef, {
+        views_count: currentViews + 1
+      });
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error incrementing story views:', error);
+    throw error;
+  }
+};
+
+// Real-time subscriptions
+export const subscribeToCollection = (collectionName: string, callback: (data: any[]) => void, constraints?: any[]) => {
+  try {
+    let q = collection(db, collectionName);
+    
+    if (constraints && constraints.length > 0) {
+      q = query(q, ...constraints);
+    }
+    
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      callback(data);
+    });
+  } catch (error) {
+    console.error(`Error subscribing to ${collectionName}:`, error);
+    throw error;
+  }
+};
+
+// Batch operations
+export const batchWrite = async (operations: Array<{ type: 'create' | 'update' | 'delete', collection: string, id?: string, data?: any }>) => {
+  try {
+    const batch = writeBatch(db);
+    
+    operations.forEach(operation => {
+      switch (operation.type) {
+        case 'create':
+          const createRef = doc(collection(db, operation.collection));
+          batch.set(createRef, {
+            ...operation.data,
+            created_at: serverTimestamp()
+          });
+          break;
+        case 'update':
+          const updateRef = doc(db, operation.collection, operation.id!);
+          batch.update(updateRef, {
+            ...operation.data,
+            updated_at: serverTimestamp()
+          });
+          break;
+        case 'delete':
+          const deleteRef = doc(db, operation.collection, operation.id!);
+          batch.delete(deleteRef);
+          break;
+      }
+    });
+    
+    await batch.commit();
+    return { success: true };
+  } catch (error) {
+    console.error('Error in batch write:', error);
+    throw error;
   }
 };

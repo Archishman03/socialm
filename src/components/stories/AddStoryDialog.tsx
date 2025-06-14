@@ -1,11 +1,12 @@
-
 import React, { useState, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Camera, Upload, X, Image as ImageIcon, Trash2, Plus, Settings, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { auth } from '@/config/firebase';
+import { uploadStoryPhoto, addPhotosToStory, deleteStoryPhotos } from '@/services/firebase/storage';
+import { createStory, updateStory } from '@/services/firebase/firestore';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -94,12 +95,7 @@ export function AddStoryDialog({ open, onOpenChange, onStoryAdded, currentUser, 
 
   const handleDeleteExistingPhoto = async (photoIndex: number) => {
     try {
-      const { error } = await supabase.rpc('delete_story_photos', {
-        story_id: existingStory.id,
-        photo_indices: [photoIndex]
-      });
-
-      if (error) throw error;
+      await deleteStoryPhotos(existingStory.id, [photoIndex]);
 
       toast({
         title: 'Photo deleted',
@@ -136,35 +132,17 @@ export function AddStoryDialog({ open, onOpenChange, onStoryAdded, currentUser, 
 
       // Upload all images
       for (const image of selectedImages) {
-        const fileExt = image.name.split('.').pop();
-        const fileName = `${currentUser.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('stories')
-          .upload(fileName, image);
-
-        if (uploadError) throw uploadError;
-
-        const { data } = supabase.storage
-          .from('stories')
-          .getPublicUrl(fileName);
-
-        uploadedUrls.push(data.publicUrl);
+        const url = await uploadStoryPhoto(image, currentUser.uid);
+        uploadedUrls.push(url);
         photoMetadata.push({
           uploaded_at: currentTime,
-          file_name: fileName
+          file_name: image.name
         });
       }
 
       // Add photos to existing story or create new one
       if (hasExistingPhotos) {
-        const { error } = await supabase.rpc('add_photos_to_story', {
-          story_user_id: currentUser.id,
-          new_photo_urls: uploadedUrls,
-          new_photo_metadata: photoMetadata
-        });
-
-        if (error) throw error;
+        await addPhotosToStory(currentUser.uid, uploadedUrls, photoMetadata);
 
         toast({
           title: 'Photos added!',
@@ -172,16 +150,12 @@ export function AddStoryDialog({ open, onOpenChange, onStoryAdded, currentUser, 
         });
       } else {
         // Create new story
-        const { error: insertError } = await supabase
-          .from('stories')
-          .insert({
-            user_id: currentUser.id,
-            photo_urls: uploadedUrls,
-            photo_metadata: photoMetadata,
-            image_url: uploadedUrls[0],
-          });
-
-        if (insertError) throw insertError;
+        await createStory({
+          user_id: currentUser.uid,
+          photo_urls: uploadedUrls,
+          photo_metadata: photoMetadata,
+          image_url: uploadedUrls[0],
+        });
 
         toast({
           title: 'Story posted!',
@@ -239,15 +213,15 @@ export function AddStoryDialog({ open, onOpenChange, onStoryAdded, currentUser, 
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Avatar className="w-8 h-8">
-                  {currentUser?.avatar ? (
-                    <AvatarImage src={currentUser.avatar} alt={currentUser.name} />
+                  {currentUser?.photoURL ? (
+                    <AvatarImage src={currentUser.photoURL} alt={currentUser.displayName} />
                   ) : (
                     <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                      {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
+                      {currentUser?.displayName?.substring(0, 2).toUpperCase() || 'U'}
                     </AvatarFallback>
                   )}
                 </Avatar>
-                <span className="font-pixelated text-xs">{currentUser?.name}</span>
+                <span className="font-pixelated text-xs">{currentUser?.displayName}</span>
               </div>
               
               {/* Settings Icon - Only show if user has existing photos */}

@@ -5,7 +5,20 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Heart, MessageCircle, Send, MoreVertical, Edit, Trash2, ArrowUp, ChevronDown, ChevronUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  doc, 
+  updateDoc, 
+  deleteDoc, 
+  addDoc, 
+  where,
+  getDocs,
+  getDoc
+} from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { ImageViewer } from '@/components/ui/image-viewer';
 import { UserProfileDialog } from '@/components/user/UserProfileDialog';
@@ -31,23 +44,19 @@ interface Post {
   id: string;
   content: string;
   image_url: string | null;
-  created_at: string;
+  created_at: any;
   user_id: string;
-  profiles: {
-    name: string;
-    username: string;
-    avatar: string | null;
-  };
+  user_name: string;
+  user_username: string;
+  user_avatar: string | null;
   likes: { id: string; user_id: string }[];
   comments: {
     id: string;
     content: string;
-    created_at: string;
+    created_at: any;
     user_id: string;
-    profiles: {
-      name: string;
-      avatar: string | null;
-    };
+    user_name: string;
+    user_avatar: string | null;
   }[];
   _count?: {
     likes: number;
@@ -58,12 +67,10 @@ interface Post {
 interface Comment {
   id: string;
   content: string;
-  created_at: string;
+  created_at: any;
   user_id: string;
-  profiles: {
-    name: string;
-    avatar: string | null;
-  };
+  user_name: string;
+  user_avatar: string | null;
 }
 
 export function CommunityFeed() {
@@ -112,16 +119,18 @@ export function CommunityFeed() {
 
   const handleUserClick = async (userId: string, username: string) => {
     try {
-      const { data: userProfile, error } = await supabase
-        .from('profiles')
-        .select('id, name, username, avatar, created_at')
-        .eq('id', userId)
-        .single();
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
 
-      if (error) throw error;
-
-      if (userProfile) {
-        setSelectedUser(userProfile);
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        setSelectedUser({
+          id: userId,
+          name: userData.name,
+          username: userData.username,
+          avatar: userData.avatar,
+          created_at: userData.created_at
+        });
         setShowUserDialog(true);
       }
     } catch (error) {
@@ -134,103 +143,84 @@ export function CommunityFeed() {
     }
   };
 
-  // Silent background fetch without loading states
-  const fetchPostsInBackground = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          id,
-          content,
-          image_url,
-          created_at,
-          user_id,
-          profiles:user_id (
-            name,
-            username,
-            avatar
-          ),
-          likes (
-            id,
-            user_id
-          ),
-          comments (
-            id,
-            content,
-            created_at,
-            user_id,
-            profiles:user_id (
-              name,
-              avatar
-            )
-          )
-        `)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const formattedPosts = data?.map(post => ({
-        ...post,
-        _count: {
-          likes: post.likes?.length || 0,
-          comments: post.comments?.length || 0
-        }
-      })) || [];
-
-      // Smoothly update posts without any loading indicators
-      setPosts(formattedPosts);
-    } catch (error) {
-      console.error('Background fetch error:', error);
-      // Don't show error toast for background updates to avoid interrupting user
-    }
-  }, []);
-
-  // Initial fetch with loading state (only on first load)
+  // Fetch posts from Firebase
   const fetchPosts = useCallback(async () => {
     try {
-      setLoading(true);
+      const postsQuery = query(
+        collection(db, 'posts'),
+        orderBy('created_at', 'desc')
+      );
 
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          id,
-          content,
-          image_url,
-          created_at,
-          user_id,
-          profiles:user_id (
-            name,
-            username,
-            avatar
-          ),
-          likes (
-            id,
-            user_id
-          ),
-          comments (
-            id,
-            content,
-            created_at,
-            user_id,
-            profiles:user_id (
-              name,
-              avatar
-            )
-          )
-        `)
-        .order('created_at', { ascending: false });
+      const unsubscribe = onSnapshot(postsQuery, async (snapshot) => {
+        const postsData: Post[] = [];
 
-      if (error) throw error;
+        for (const docSnap of snapshot.docs) {
+          const postData = docSnap.data();
+          
+          // Get user data
+          const userRef = doc(db, 'users', postData.user_id);
+          const userDoc = await getDoc(userRef);
+          const userData = userDoc.exists() ? userDoc.data() : {};
 
-      const formattedPosts = data?.map(post => ({
-        ...post,
-        _count: {
-          likes: post.likes?.length || 0,
-          comments: post.comments?.length || 0
+          // Get likes
+          const likesQuery = query(
+            collection(db, 'likes'),
+            where('post_id', '==', docSnap.id)
+          );
+          const likesSnapshot = await getDocs(likesQuery);
+          const likes = likesSnapshot.docs.map(doc => ({
+            id: doc.id,
+            user_id: doc.data().user_id
+          }));
+
+          // Get comments
+          const commentsQuery = query(
+            collection(db, 'comments'),
+            where('post_id', '==', docSnap.id),
+            orderBy('created_at', 'asc')
+          );
+          const commentsSnapshot = await getDocs(commentsQuery);
+          const comments = [];
+
+          for (const commentDoc of commentsSnapshot.docs) {
+            const commentData = commentDoc.data();
+            const commentUserRef = doc(db, 'users', commentData.user_id);
+            const commentUserDoc = await getDoc(commentUserRef);
+            const commentUserData = commentUserDoc.exists() ? commentUserDoc.data() : {};
+
+            comments.push({
+              id: commentDoc.id,
+              content: commentData.content,
+              created_at: commentData.created_at,
+              user_id: commentData.user_id,
+              user_name: commentUserData.name || 'Unknown',
+              user_avatar: commentUserData.avatar || null
+            });
+          }
+
+          postsData.push({
+            id: docSnap.id,
+            content: postData.content,
+            image_url: postData.image_url || null,
+            created_at: postData.created_at,
+            user_id: postData.user_id,
+            user_name: userData.name || 'Unknown',
+            user_username: userData.username || 'unknown',
+            user_avatar: userData.avatar || null,
+            likes,
+            comments,
+            _count: {
+              likes: likes.length,
+              comments: comments.length
+            }
+          });
         }
-      })) || [];
 
-      setPosts(formattedPosts);
+        setPosts(postsData);
+        setLoading(false);
+      });
+
+      return unsubscribe;
     } catch (error) {
       console.error('Error fetching posts:', error);
       toast({
@@ -238,14 +228,15 @@ export function CommunityFeed() {
         title: 'Error',
         description: 'Failed to load posts'
       });
-    } finally {
       setLoading(false);
     }
   }, [toast]);
 
   const getCurrentUser = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    setCurrentUser(user);
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+    return unsubscribe;
   }, []);
 
   const handleLike = async (postId: string) => {
@@ -257,60 +248,18 @@ export function CommunityFeed() {
       const post = posts.find(p => p.id === postId);
       if (!post) return;
 
-      const existingLike = post.likes.find(like => like.user_id === currentUser.id);
+      const existingLike = post.likes.find(like => like.user_id === currentUser.uid);
 
       if (existingLike) {
         // Unlike
-        const { error } = await supabase
-          .from('likes')
-          .delete()
-          .eq('id', existingLike.id);
-
-        if (error) throw error;
-
-        // Optimistic update
-        setPosts(prevPosts =>
-          prevPosts.map(p =>
-            p.id === postId
-              ? {
-                  ...p,
-                  likes: p.likes.filter(like => like.id !== existingLike.id),
-                  _count: {
-                    ...p._count,
-                    likes: (p._count?.likes || 0) - 1
-                  }
-                }
-              : p
-          )
-        );
+        await deleteDoc(doc(db, 'likes', existingLike.id));
       } else {
         // Like
-        const { data, error } = await supabase
-          .from('likes')
-          .insert({
-            post_id: postId,
-            user_id: currentUser.id
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        // Optimistic update
-        setPosts(prevPosts =>
-          prevPosts.map(p =>
-            p.id === postId
-              ? {
-                  ...p,
-                  likes: [...p.likes, { id: data.id, user_id: currentUser.id }],
-                  _count: {
-                    ...p._count,
-                    likes: (p._count?.likes || 0) + 1
-                  }
-                }
-              : p
-          )
-        );
+        await addDoc(collection(db, 'likes'), {
+          post_id: postId,
+          user_id: currentUser.uid,
+          created_at: new Date()
+        });
       }
     } catch (error) {
       console.error('Error toggling like:', error);
@@ -331,43 +280,12 @@ export function CommunityFeed() {
     try {
       setSubmittingComments(prev => ({ ...prev, [postId]: true }));
 
-      const { data, error } = await supabase
-        .from('comments')
-        .insert({
-          post_id: postId,
-          user_id: currentUser.id,
-          content
-        })
-        .select(`
-          id,
-          content,
-          created_at,
-          user_id,
-          profiles:user_id (
-            name,
-            avatar
-          )
-        `)
-        .single();
-
-      if (error) throw error;
-
-      // Update posts with new comment
-      setPosts(prevPosts =>
-        prevPosts.map(post =>
-          post.id === postId
-            ? {
-                ...post,
-                comments: [...post.comments, data],
-                _count: {
-                  ...post._count,
-                  likes: post._count?.likes || 0,
-                  comments: (post._count?.comments || 0) + 1
-                }
-              }
-            : post
-        )
-      );
+      await addDoc(collection(db, 'comments'), {
+        post_id: postId,
+        user_id: currentUser.uid,
+        content,
+        created_at: new Date()
+      });
 
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
       
@@ -389,20 +307,11 @@ export function CommunityFeed() {
     if (!editContent.trim()) return;
 
     try {
-      const { error } = await supabase
-        .from('posts')
-        .update({ content: editContent.trim() })
-        .eq('id', postId);
-
-      if (error) throw error;
-
-      setPosts(prevPosts =>
-        prevPosts.map(post =>
-          post.id === postId
-            ? { ...post, content: editContent.trim() }
-            : post
-        )
-      );
+      const postRef = doc(db, 'posts', postId);
+      await updateDoc(postRef, {
+        content: editContent.trim(),
+        updated_at: new Date()
+      });
 
       setEditingPost(null);
       setEditContent('');
@@ -423,14 +332,7 @@ export function CommunityFeed() {
 
   const handleDeletePost = async (postId: string) => {
     try {
-      const { error } = await supabase
-        .from('posts')
-        .delete()
-        .eq('id', postId);
-
-      if (error) throw error;
-
-      setPosts(prevPosts => prevPosts.filter(post => post.id !== postId));
+      await deleteDoc(doc(db, 'posts', postId));
       setDeletePostId(null);
 
       toast({
@@ -462,51 +364,14 @@ export function CommunityFeed() {
 
   useEffect(() => {
     getCurrentUser();
-    fetchPosts();
-
-    // Set up real-time subscriptions for seamless background updates
-    const postsChannel = supabase
-      .channel('posts-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'posts' }, 
-        (payload) => {
-          console.log('Post change detected:', payload);
-          // Use background fetch to avoid loading indicators
-          fetchPostsInBackground();
-        }
-      )
-      .subscribe();
-
-    const likesChannel = supabase
-      .channel('likes-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'likes' }, 
-        (payload) => {
-          console.log('Like change detected:', payload);
-          // Use background fetch to avoid loading indicators
-          fetchPostsInBackground();
-        }
-      )
-      .subscribe();
-
-    const commentsChannel = supabase
-      .channel('comments-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'comments' }, 
-        (payload) => {
-          console.log('Comment change detected:', payload);
-          // Use background fetch to avoid loading indicators
-          fetchPostsInBackground();
-        }
-      )
-      .subscribe();
-
+    const unsubscribe = fetchPosts();
+    
     return () => {
-      supabase.removeChannel(postsChannel);
-      supabase.removeChannel(likesChannel);
-      supabase.removeChannel(commentsChannel);
+      if (unsubscribe && typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
     };
-  }, [getCurrentUser, fetchPosts, fetchPostsInBackground]);
+  }, [getCurrentUser, fetchPosts]);
 
   useEffect(() => {
     const feedElement = feedRef.current;
@@ -569,8 +434,8 @@ export function CommunityFeed() {
         </Card>
       ) : (
         posts.map((post) => {
-          const isLiked = post.likes.some(like => like.user_id === currentUser?.id);
-          const isOwner = post.user_id === currentUser?.id;
+          const isLiked = post.likes.some(like => like.user_id === currentUser?.uid);
+          const isOwner = post.user_id === currentUser?.uid;
           const hasComments = post.comments && post.comments.length > 0;
           const commentsExpanded = expandedComments[post.id];
           const commentBoxVisible = showCommentBox[post.id];
@@ -582,28 +447,28 @@ export function CommunityFeed() {
                   <div className="flex items-center gap-3">
                     <Avatar 
                       className="h-10 w-10 border-2 border-social-green/20 cursor-pointer hover:scale-105 transition-transform"
-                      onClick={() => handleUserClick(post.user_id, post.profiles?.username)}
+                      onClick={() => handleUserClick(post.user_id, post.user_username)}
                     >
-                      {post.profiles?.avatar ? (
-                        <AvatarImage src={post.profiles.avatar} alt={post.profiles.name} />
+                      {post.user_avatar ? (
+                        <AvatarImage src={post.user_avatar} alt={post.user_name} />
                       ) : (
                         <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                          {post.profiles?.name?.substring(0, 2).toUpperCase() || 'U'}
+                          {post.user_name?.substring(0, 2).toUpperCase() || 'U'}
                         </AvatarFallback>
                       )}
                     </Avatar>
                     <div>
                       <p 
                         className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors"
-                        onClick={() => handleUserClick(post.user_id, post.profiles?.username)}
+                        onClick={() => handleUserClick(post.user_id, post.user_username)}
                       >
-                        {post.profiles?.name}
+                        {post.user_name}
                       </p>
                       <p 
                         className="font-pixelated text-xs text-muted-foreground cursor-pointer hover:text-social-green transition-colors"
-                        onClick={() => handleUserClick(post.user_id, post.profiles?.username)}
+                        onClick={() => handleUserClick(post.user_id, post.user_username)}
                       >
-                        @{post.profiles?.username} • {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
+                        @{post.user_username} • {formatDistanceToNow(post.created_at?.toDate() || new Date(), { addSuffix: true })}
                       </p>
                     </div>
                   </div>
@@ -734,11 +599,11 @@ export function CommunityFeed() {
                               className="h-6 w-6 cursor-pointer hover:scale-105 transition-transform"
                               onClick={() => handleUserClick(comment.user_id, '')}
                             >
-                              {comment.profiles?.avatar ? (
-                                <AvatarImage src={comment.profiles.avatar} />
+                              {comment.user_avatar ? (
+                                <AvatarImage src={comment.user_avatar} />
                               ) : (
                                 <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                                  {comment.profiles?.name?.substring(0, 2).toUpperCase() || 'U'}
+                                  {comment.user_name?.substring(0, 2).toUpperCase() || 'U'}
                                 </AvatarFallback>
                               )}
                             </Avatar>
@@ -748,10 +613,10 @@ export function CommunityFeed() {
                                   className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors"
                                   onClick={() => handleUserClick(comment.user_id, '')}
                                 >
-                                  {comment.profiles?.name}
+                                  {comment.user_name}
                                 </span>
                                 <span className="font-pixelated text-xs text-muted-foreground">
-                                  {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
+                                  {formatDistanceToNow(comment.created_at?.toDate() || new Date(), { addSuffix: true })}
                                 </span>
                               </div>
                               <p className="font-pixelated text-xs leading-relaxed">

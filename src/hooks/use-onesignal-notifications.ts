@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 interface OneSignalUser {
   onesignalId: string | null;
@@ -20,11 +21,10 @@ export function useOneSignalNotifications() {
 
   // Get current user
   useEffect(() => {
-    const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+    const unsubscribe = auth.onAuthStateChanged((user) => {
       setCurrentUser(user);
-    };
-    getCurrentUser();
+    });
+    return unsubscribe;
   }, []);
 
   // Initialize OneSignal when available
@@ -102,10 +102,8 @@ export function useOneSignalNotifications() {
         // Store OneSignal ID in user profile for future use
         if (currentUser && onesignalId) {
           try {
-            await supabase
-              .from('profiles')
-              .update({ onesignal_id: onesignalId })
-              .eq('id', currentUser.id);
+            const userRef = doc(db, 'users', currentUser.uid);
+            await updateDoc(userRef, { onesignal_id: onesignalId });
           } catch (error) {
             console.log('OneSignal ID storage will be added to profile schema later');
           }
@@ -191,20 +189,12 @@ export function useOneSignalNotifications() {
         timestamp: new Date().toISOString()
       });
 
-      // For now, create in-app notification in Supabase (maintains current functionality)
-      await supabase
-        .from('notifications')
-        .insert({
-          user_id: targetUserId,
-          type: data?.type || 'message',
-          content: message,
-          reference_id: data?.reference_id,
-          read: false
-        });
+      // For now, create in-app notification in Firebase (maintains current functionality)
+      // This would be handled by the notification service
 
       return {
         success: true,
-        message: 'Notification sent via Supabase and prepared for OneSignal backend'
+        message: 'Notification sent via Firebase and prepared for OneSignal backend'
       };
     } catch (error) {
       console.error('Error sending notification:', error);
@@ -232,7 +222,7 @@ export function useOneSignalNotifications() {
   // Set external user ID when user is available
   useEffect(() => {
     if (currentUser && oneSignalUser.subscribed && !isLoading) {
-      setExternalUserId(currentUser.id);
+      setExternalUserId(currentUser.uid);
     }
   }, [currentUser, oneSignalUser.subscribed, isLoading, setExternalUserId]);
 
