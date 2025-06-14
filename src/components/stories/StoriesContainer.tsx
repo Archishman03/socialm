@@ -1,6 +1,6 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { collection, query, orderBy, onSnapshot, doc, getDoc, where, getDocs } from 'firebase/firestore';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
@@ -40,33 +40,8 @@ const StoriesContainer = React.memo(() => {
 
   const fetchStories = useCallback(async () => {
     try {
-      // First cleanup expired photos
-      await supabase.rpc('cleanup_expired_story_photos');
-
-      const { data, error } = await supabase
-        .from('stories')
-        .select(`
-          *,
-          profiles:user_id (
-            name,
-            username,
-            avatar
-          )
-        `)
-        .gt('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Group stories by user and keep only the latest story per user
-      const groupedStories = data?.reduce((acc: Record<string, Story>, story: any) => {
-        if (!acc[story.user_id] || new Date(story.created_at) > new Date(acc[story.user_id].created_at)) {
-          acc[story.user_id] = story;
-        }
-        return acc;
-      }, {});
-
-      setStories(Object.values(groupedStories || {}));
+      // For now, just set empty stories since we don't have the stories collection set up yet
+      setStories([]);
     } catch (error) {
       console.error('Error fetching stories:', error);
       toast({
@@ -80,87 +55,51 @@ const StoriesContainer = React.memo(() => {
   }, [toast]);
 
   const getCurrentUser = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      
-      setCurrentUser(profile);
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      try {
+        const userRef = doc(db, 'users', currentUser.uid);
+        const userDoc = await getDoc(userRef);
+        
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setCurrentUser({
+            id: currentUser.uid,
+            name: userData.name || currentUser.displayName || 'User',
+            username: userData.username || 'user',
+            avatar: userData.avatar || currentUser.photoURL || null
+          });
+        } else {
+          setCurrentUser({
+            id: currentUser.uid,
+            name: currentUser.displayName || 'User',
+            username: 'user',
+            avatar: currentUser.photoURL || null
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
+        setCurrentUser({
+          id: currentUser.uid,
+          name: currentUser.displayName || 'User',
+          username: 'user',
+          avatar: currentUser.photoURL || null
+        });
+      }
     }
   }, []);
 
   useEffect(() => {
     getCurrentUser();
     fetchStories();
-    
-    // Set up realtime subscription for stories with more granular updates
-    const channel = supabase
-      .channel('stories-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'stories'
-        },
-        (payload) => {
-          console.log('Story change detected:', payload);
-          // Optimistic update for better performance
-          if (payload.eventType === 'INSERT') {
-            fetchStories();
-          } else if (payload.eventType === 'UPDATE') {
-            setStories(prevStories => 
-              prevStories.map(story => 
-                story.id === payload.new.id 
-                  ? { ...story, ...payload.new }
-                  : story
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setStories(prevStories => 
-              prevStories.filter(story => story.id !== payload.old.id)
-            );
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [getCurrentUser, fetchStories]);
 
   const handleStoryClick = useCallback(async (story: Story) => {
     setSelectedStory(story);
     
-    // Mark story as viewed using the new function
-    if (story.user_id !== currentUser?.id) {
-      try {
-        const { data, error } = await supabase.rpc('increment_story_views', {
-          story_uuid: story.id,
-          viewer_uuid: currentUser?.id
-        });
-        
-        if (error) {
-          console.error('Error tracking story view:', error);
-        } else {
-          // Update local state with new view count
-          setStories(prevStories => 
-            prevStories.map(s => 
-              s.id === story.id 
-                ? { ...s, views_count: data || s.views_count + 1 }
-                : s
-            )
-          );
-        }
-      } catch (error) {
-        console.error('Error tracking story view:', error);
-      }
-    }
-  }, [currentUser?.id]);
+    // Mark story as viewed - implement when stories collection is ready
+    console.log('Story viewed:', story.id);
+  }, []);
 
   const userStory = useMemo(() => {
     return stories.find(story => story.user_id === currentUser?.id);

@@ -5,8 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { OneSignalNotificationBanner } from '@/components/notifications/OneSignalNotificationBanner';
-import { useOneSignalNotifications } from '@/hooks/use-onesignal-notifications';
 import { 
   Bell, 
   Check, 
@@ -23,7 +21,8 @@ import {
   UserX,
   Settings
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { collection, query, where, orderBy, onSnapshot, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -53,46 +52,21 @@ export function Notifications() {
   const [loading, setLoading] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
-  const [showNotificationBanner, setShowNotificationBanner] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const { toast } = useToast();
-  const { oneSignalUser, requestPermission, unsubscribe } = useOneSignalNotifications();
 
   const fetchNotifications = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
 
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = auth.currentUser;
       if (!user) return;
 
       setCurrentUser(user);
 
-      // Fetch notifications from database
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching notifications:', error);
-        // Create some sample notifications if none exist
-        await createSampleNotifications(user.id);
-        // Try fetching again
-        const { data: retryData } = await supabase
-          .from('notifications')
-          .select('*')
-          .eq('user_id', user.id)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false });
-        
-        setNotifications(retryData || []);
-      } else {
-        setNotifications(data || []);
-      }
+      // For now, set empty notifications since we don't have the notifications collection set up yet
+      setNotifications([]);
     } catch (error) {
       console.error('Error in fetchNotifications:', error);
       setNotifications([]);
@@ -101,62 +75,13 @@ export function Notifications() {
     }
   };
 
-  const createSampleNotifications = async (userId: string) => {
-    try {
-      const sampleNotifications = [
-        {
-          user_id: userId,
-          type: 'like',
-          content: 'Owais liked your post',
-          read: false
-        },
-        {
-          user_id: userId,
-          type: 'comment',
-          content: 'raafi jamal commented on your post',
-          read: false
-        },
-        {
-          user_id: userId,
-          type: 'like',
-          content: 'Roohi Fida liked your post',
-          read: false
-        }
-      ];
-
-      for (const notification of sampleNotifications) {
-        await supabase
-          .from('notifications')
-          .insert(notification);
-      }
-    } catch (error) {
-      console.log('Sample notifications creation handled');
-    }
-  };
-
   const markAsRead = async (notificationId: string) => {
     try {
-      // Optimistic update
-      setNotifications(prev =>
-        prev.map(notif =>
-          notif.id === notificationId ? { ...notif, read: true } : notif
-        )
-      );
-
-      const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('id', notificationId);
-
-      if (error) {
-        console.error('Error marking notification as read:', error);
-        // Revert optimistic update on error
-        setNotifications(prev =>
-          prev.map(notif =>
-            notif.id === notificationId ? { ...notif, read: false } : notif
-          )
-        );
-      }
+      // For now, just show a toast since we don't have notifications collection set up yet
+      toast({
+        title: 'Notifications feature coming soon!',
+        description: 'This feature will be available in the next update.',
+      });
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
@@ -164,127 +89,35 @@ export function Notifications() {
 
   const markAllAsRead = async () => {
     try {
-      if (!currentUser) return;
-
-      // Optimistic update
-      const originalNotifications = [...notifications];
-      setNotifications(prev =>
-        prev.map(notif => ({ ...notif, read: true }))
-      );
-
-      const { error } = await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('user_id', currentUser.id)
-        .eq('read', false);
-
-      if (error) {
-        console.error('Error marking all as read:', error);
-        // Revert on error
-        setNotifications(originalNotifications);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Failed to mark all notifications as read'
-        });
-      } else {
-        toast({
-          title: 'All notifications marked as read',
-          description: 'Your notifications have been updated',
-        });
-      }
+      toast({
+        title: 'Notifications feature coming soon!',
+        description: 'This feature will be available in the next update.',
+      });
     } catch (error) {
       console.error('Error marking all as read:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to mark all notifications as read'
-      });
     }
   };
 
   const clearAllNotifications = async () => {
     try {
-      if (!currentUser) return;
-
-      // Optimistic update
-      const originalNotifications = [...notifications];
-      setNotifications([]);
+      toast({
+        title: 'Notifications feature coming soon!',
+        description: 'This feature will be available in the next update.',
+      });
       setShowClearDialog(false);
-
-      const { error } = await supabase
-        .from('notifications')
-        .update({ deleted_at: new Date().toISOString() })
-        .eq('user_id', currentUser.id)
-        .is('deleted_at', null);
-
-      if (error) {
-        console.error('Error clearing notifications:', error);
-        // Revert on error
-        setNotifications(originalNotifications);
-        setShowClearDialog(false);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Failed to clear notifications'
-        });
-      } else {
-        toast({
-          title: 'All notifications cleared',
-          description: 'Your notifications have been cleared',
-        });
-      }
     } catch (error) {
       console.error('Error clearing notifications:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to clear notifications'
-      });
     }
   };
 
   const deleteNotification = async (notificationId: string) => {
     try {
-      // Optimistic update
-      const originalNotifications = [...notifications];
-      setNotifications(prev => prev.filter(notif => notif.id !== notificationId));
-
-      const { error } = await supabase
-        .from('notifications')
-        .update({ deleted_at: new Date().toISOString() })
-        .eq('id', notificationId);
-
-      if (error) {
-        console.error('Error deleting notification:', error);
-        // Revert on error
-        setNotifications(originalNotifications);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Failed to delete notification'
-        });
-      } else {
-        toast({
-          title: 'Notification deleted',
-          description: 'The notification has been removed',
-        });
-      }
+      toast({
+        title: 'Notifications feature coming soon!',
+        description: 'This feature will be available in the next update.',
+      });
     } catch (error) {
       console.error('Error deleting notification:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to delete notification'
-      });
-    }
-  };
-
-  const handleNotificationToggle = async () => {
-    if (oneSignalUser.subscribed) {
-      await unsubscribe();
-    } else {
-      await requestPermission();
     }
   };
 
@@ -329,11 +162,6 @@ export function Notifications() {
   useEffect(() => {
     fetchNotifications();
     
-    // Check notification permission
-    if ('Notification' in window) {
-      setNotificationPermission(Notification.permission);
-    }
-
     // Listen for online/offline status
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -341,57 +169,11 @@ export function Notifications() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Silent background sync every 30 seconds
-    const syncInterval = setInterval(() => {
-      if (isOnline) {
-        fetchNotifications(false);
-      }
-    }, 30000);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      clearInterval(syncInterval);
     };
-  }, [isOnline]);
-
-  useEffect(() => {
-    if (currentUser) {
-      // Set up real-time subscription for notifications
-      const notificationsChannel = supabase
-        .channel('notifications-realtime')
-        .on('postgres_changes', 
-          { 
-            event: '*', 
-            schema: 'public', 
-            table: 'notifications',
-            filter: `user_id=eq.${currentUser.id}`
-          }, 
-          (payload) => {
-            console.log('Notification change:', payload);
-            if (payload.eventType === 'INSERT') {
-              const newNotification = payload.new as Notification;
-              setNotifications(prev => [newNotification, ...prev]);
-              
-              // Show browser notification if permission granted
-              if (notificationPermission === 'granted') {
-                new Notification('New Notification', {
-                  body: newNotification.content,
-                  icon: '/lovable-uploads/d215e62c-d97d-4600-a98e-68acbeba47d0.png'
-                });
-              }
-            } else {
-              fetchNotifications(false);
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(notificationsChannel);
-      };
-    }
-  }, [currentUser, notificationPermission]);
+  }, []);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -449,7 +231,6 @@ export function Notifications() {
               <h1 className="font-pixelated text-lg font-medium">Notifications</h1>
               <p className="font-pixelated text-xs text-muted-foreground">
                 {notifications.length} total • {unreadCount} unread • {isOnline ? 'Online' : 'Offline'}
-                {oneSignalUser.subscribed && ' • Push enabled'}
               </p>
             </div>
           </div>
@@ -489,35 +270,6 @@ export function Notifications() {
             )}
           </div>
         </div>
-
-        {/* OneSignal Notification Banner */}
-        {showNotificationBanner && !oneSignalUser.subscribed && (
-          <OneSignalNotificationBanner onDismiss={() => setShowNotificationBanner(false)} />
-        )}
-
-        {/* Push Notification Status */}
-        {oneSignalUser.subscribed && (
-          <div className="mx-4 mt-4 p-3 bg-social-green/10 border border-social-green/20 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bell className="h-4 w-4 text-social-green" />
-                <div>
-                  <p className="font-pixelated text-xs font-medium text-social-green">Push Notifications Active</p>
-                  <p className="font-pixelated text-xs text-muted-foreground">You'll receive notifications even when SocialChat is closed</p>
-                </div>
-              </div>
-              <Button
-                onClick={handleNotificationToggle}
-                size="sm"
-                variant="outline"
-                className="font-pixelated text-xs"
-              >
-                <Settings className="h-3 w-3 mr-1" />
-                Manage
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/* Content */}
         <ScrollArea className="h-[calc(100vh-140px)] p-4 scroll-container scroll-smooth">
@@ -598,14 +350,6 @@ export function Notifications() {
               <p className="font-pixelated text-sm text-muted-foreground max-w-sm leading-relaxed">
                 You don't have any notifications right now. When you receive friend requests, messages, likes, or comments, they'll appear here.
               </p>
-              {!oneSignalUser.subscribed && (
-                <Button
-                  onClick={requestPermission}
-                  className="mt-4 bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs"
-                >
-                  Enable Push Notifications
-                </Button>
-              )}
             </div>
           )}
         </ScrollArea>
@@ -616,7 +360,7 @@ export function Notifications() {
             <DialogHeader>
               <DialogTitle className="font-pixelated text-lg social-gradient bg-clip-text text-transparent flex items-center gap-2">
                 <Bell className="h-5 w-5" />
-                Push Notifications
+                Notifications
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
@@ -646,7 +390,7 @@ export function Notifications() {
               
               <div className="bg-muted/50 p-3 rounded-lg">
                 <p className="font-pixelated text-xs text-muted-foreground leading-relaxed">
-                  <strong>OneSignal Push Notifications:</strong> Get instant alerts on all devices and browsers, including macOS Safari!
+                  <strong>Coming Soon:</strong> Real-time notifications for all your social interactions!
                 </p>
               </div>
               

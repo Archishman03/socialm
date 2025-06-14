@@ -162,41 +162,9 @@ export function CommunityFeed() {
           const userDoc = await getDoc(userRef);
           const userData = userDoc.exists() ? userDoc.data() : {};
 
-          // Get likes
-          const likesQuery = query(
-            collection(db, 'likes'),
-            where('post_id', '==', docSnap.id)
-          );
-          const likesSnapshot = await getDocs(likesQuery);
-          const likes = likesSnapshot.docs.map(doc => ({
-            id: doc.id,
-            user_id: doc.data().user_id
-          }));
-
-          // Get comments
-          const commentsQuery = query(
-            collection(db, 'comments'),
-            where('post_id', '==', docSnap.id),
-            orderBy('created_at', 'asc')
-          );
-          const commentsSnapshot = await getDocs(commentsQuery);
-          const comments = [];
-
-          for (const commentDoc of commentsSnapshot.docs) {
-            const commentData = commentDoc.data();
-            const commentUserRef = doc(db, 'users', commentData.user_id);
-            const commentUserDoc = await getDoc(commentUserRef);
-            const commentUserData = commentUserDoc.exists() ? commentUserDoc.data() : {};
-
-            comments.push({
-              id: commentDoc.id,
-              content: commentData.content,
-              created_at: commentData.created_at,
-              user_id: commentData.user_id,
-              user_name: commentUserData.name || 'Unknown',
-              user_avatar: commentUserData.avatar || null
-            });
-          }
+          // For now, set empty likes and comments since we don't have those collections set up yet
+          const likes: any[] = [];
+          const comments: any[] = [];
 
           postsData.push({
             id: docSnap.id,
@@ -245,22 +213,11 @@ export function CommunityFeed() {
     try {
       setLikingPosts(prev => ({ ...prev, [postId]: true }));
 
-      const post = posts.find(p => p.id === postId);
-      if (!post) return;
-
-      const existingLike = post.likes.find(like => like.user_id === currentUser.uid);
-
-      if (existingLike) {
-        // Unlike
-        await deleteDoc(doc(db, 'likes', existingLike.id));
-      } else {
-        // Like
-        await addDoc(collection(db, 'likes'), {
-          post_id: postId,
-          user_id: currentUser.uid,
-          created_at: new Date()
-        });
-      }
+      // For now, just show a toast since we don't have likes collection set up yet
+      toast({
+        title: 'Like feature coming soon!',
+        description: 'This feature will be available in the next update.',
+      });
     } catch (error) {
       console.error('Error toggling like:', error);
       toast({
@@ -280,17 +237,13 @@ export function CommunityFeed() {
     try {
       setSubmittingComments(prev => ({ ...prev, [postId]: true }));
 
-      await addDoc(collection(db, 'comments'), {
-        post_id: postId,
-        user_id: currentUser.uid,
-        content,
-        created_at: new Date()
+      // For now, just show a toast since we don't have comments collection set up yet
+      toast({
+        title: 'Comment feature coming soon!',
+        description: 'This feature will be available in the next update.',
       });
 
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
-      
-      // Auto-expand comments when user adds a comment
-      setExpandedComments(prev => ({ ...prev, [postId]: true }));
     } catch (error) {
       console.error('Error adding comment:', error);
       toast({
@@ -468,7 +421,7 @@ export function CommunityFeed() {
                         className="font-pixelated text-xs text-muted-foreground cursor-pointer hover:text-social-green transition-colors"
                         onClick={() => handleUserClick(post.user_id, post.user_username)}
                       >
-                        @{post.user_username} • {formatDistanceToNow(post.created_at?.toDate() || new Date(), { addSuffix: true })}
+                        @{post.user_username} • {formatDistanceToNow(post.created_at?.toDate?.() || new Date(), { addSuffix: true })}
                       </p>
                     </div>
                   </div>
@@ -589,44 +542,6 @@ export function CommunityFeed() {
                         </Button>
                       )}
                     </div>
-                    
-                    {/* Comments Section - Collapsible */}
-                    {hasComments && commentsExpanded && (
-                      <div className="mt-4 space-y-3 border-t border-border/50 pt-4 animate-fade-in">
-                        {post.comments.map((comment: Comment) => (
-                          <div key={comment.id} className="flex gap-2">
-                            <Avatar 
-                              className="h-6 w-6 cursor-pointer hover:scale-105 transition-transform"
-                              onClick={() => handleUserClick(comment.user_id, '')}
-                            >
-                              {comment.user_avatar ? (
-                                <AvatarImage src={comment.user_avatar} />
-                              ) : (
-                                <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                                  {comment.user_name?.substring(0, 2).toUpperCase() || 'U'}
-                                </AvatarFallback>
-                              )}
-                            </Avatar>
-                            <div className="flex-1 bg-muted/50 rounded-lg p-2">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span 
-                                  className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors"
-                                  onClick={() => handleUserClick(comment.user_id, '')}
-                                >
-                                  {comment.user_name}
-                                </span>
-                                <span className="font-pixelated text-xs text-muted-foreground">
-                                  {formatDistanceToNow(comment.created_at?.toDate() || new Date(), { addSuffix: true })}
-                                </span>
-                              </div>
-                              <p className="font-pixelated text-xs leading-relaxed">
-                                {comment.content}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                     
                     {/* Add Comment - Hidden by default, show when comment button is clicked */}
                     {commentBoxVisible && (

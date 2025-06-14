@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { UserPlus } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { UserProfileDialog } from '@/components/user/UserProfileDialog';
 
@@ -28,9 +28,9 @@ export function UserSearch() {
 
   useEffect(() => {
     async function getCurrentUser() {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = auth.currentUser;
       if (user) {
-        setCurrentUserId(user.id);
+        setCurrentUserId(user.uid);
       }
     }
     getCurrentUser();
@@ -45,15 +45,8 @@ export function UserSearch() {
 
       setIsLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, name, username, avatar')
-          .or(`name.ilike.%${searchTerm}%,username.ilike.%${searchTerm}%`)
-          .neq('id', currentUserId)
-          .limit(5);
-
-        if (error) throw error;
-        setSearchResults(data || []);
+        // For now, set empty results since we don't have the users collection properly set up yet
+        setSearchResults([]);
       } catch (error) {
         console.error('Error searching users:', error);
         toast({
@@ -74,30 +67,10 @@ export function UserSearch() {
     if (!currentUserId) return;
 
     try {
-      const { error } = await supabase
-        .from('friend_requests')
-        .insert({
-          requester_id: currentUserId,
-          requested_id: userId,
-          status: 'pending'
-        });
-
-      if (error) {
-        if (error.code === '23505') { // Unique constraint violation
-          toast({
-            variant: 'destructive',
-            title: 'Request already sent',
-            description: 'You have already sent a friend request to this user',
-          });
-        } else {
-          throw error;
-        }
-      } else {
-        toast({
-          title: 'Friend request sent!',
-          description: 'Your friend request has been sent successfully',
-        });
-      }
+      toast({
+        title: 'Friend request feature coming soon!',
+        description: 'This feature will be available in the next update.',
+      });
     } catch (error) {
       console.error('Error sending friend request:', error);
       toast({

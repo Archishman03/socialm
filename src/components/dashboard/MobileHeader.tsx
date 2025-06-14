@@ -13,9 +13,10 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { signOut } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
-import { useEnhancedNotifications } from '@/hooks/use-enhanced-notifications';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,27 +47,32 @@ export function MobileHeader() {
   const [user, setUser] = useState<any>(null);
   const [open, setOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const { unreadCount } = useEnhancedNotifications();
+  const [unreadCount] = useState(0); // For now, set to 0 since notifications aren't implemented yet
   const { toast } = useToast();
   
   useEffect(() => {
     async function getUserProfile() {
       try {
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        if (!authUser) return;
+        const currentUser = auth.currentUser;
+        if (!currentUser) return;
         
-        const { data } = await supabase
-          .from('profiles')
-          .select('name, username, avatar')
-          .eq('id', authUser.id)
-          .single();
+        const userRef = doc(db, 'users', currentUser.uid);
+        const userDoc = await getDoc(userRef);
           
-        if (data) {
+        if (userDoc.exists()) {
+          const data = userDoc.data();
           setUser({
-            id: authUser.id,
-            name: data.name || 'User',
+            id: currentUser.uid,
+            name: data.name || currentUser.displayName || 'User',
             username: data.username || 'guest',
-            avatar: data.avatar || '',
+            avatar: data.avatar || currentUser.photoURL || '',
+          });
+        } else {
+          setUser({
+            id: currentUser.uid,
+            name: currentUser.displayName || 'User',
+            username: 'guest',
+            avatar: currentUser.photoURL || '',
           });
         }
       } catch (error) {
@@ -79,9 +85,7 @@ export function MobileHeader() {
 
   const handleLogout = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      
-      if (error) throw error;
+      await signOut(auth);
       
       window.location.href = '/login';
     } catch (error: any) {

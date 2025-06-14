@@ -7,7 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Users, UserPlus, UserCheck, MessageCircle, UserMinus, Clock, X, AlertTriangle } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -57,33 +58,12 @@ export function Friends() {
       fetchFriends();
       fetchFriendRequests();
       fetchSuggestedFriends();
-      
-      // Set up real-time subscriptions with enhanced error handling
-      const friendsChannel = supabase
-        .channel('friends-realtime')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'friends' }, 
-          (payload) => {
-            console.log('Friends table change:', payload);
-            // Refresh all friend data when any change occurs
-            setTimeout(() => {
-              fetchFriends();
-              fetchFriendRequests();
-              fetchSuggestedFriends();
-            }, 500);
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(friendsChannel);
-      };
     }
   }, [currentUser]);
 
   const fetchCurrentUser = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = auth.currentUser;
       if (user) {
         setCurrentUser(user);
       }
@@ -96,50 +76,8 @@ export function Friends() {
     try {
       if (!currentUser) return;
 
-      console.log('Fetching friends for user:', currentUser.id);
-
-      const { data, error } = await supabase
-        .from('friends')
-        .select(`
-          id,
-          created_at,
-          sender_id,
-          receiver_id,
-          status,
-          sender_profile:profiles!friends_sender_id_fkey(id, name, username, avatar),
-          receiver_profile:profiles!friends_receiver_id_fkey(id, name, username, avatar)
-        `)
-        .eq('status', 'accepted')
-        .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
-
-      if (error) {
-        console.error('Error fetching friends:', error);
-        throw error;
-      }
-
-      console.log('Raw friends data:', data);
-
-      const friendsList = data?.map(friendship => {
-        const isCurrentUserSender = friendship.sender_id === currentUser.id;
-        const friendProfile = isCurrentUserSender 
-          ? friendship.receiver_profile 
-          : friendship.sender_profile;
-        
-        return {
-          id: friendProfile.id,
-          name: friendProfile.name,
-          username: friendProfile.username,
-          avatar: friendProfile.avatar,
-          status: 'accepted' as const,
-          created_at: friendship.created_at,
-          friend_id: friendship.id,
-          sender_id: friendship.sender_id,
-          receiver_id: friendship.receiver_id
-        };
-      }) || [];
-
-      console.log('Processed friends list:', friendsList);
-      setFriends(friendsList);
+      // For now, set empty friends since we don't have the friends collection set up yet
+      setFriends([]);
     } catch (error) {
       console.error('Error fetching friends:', error);
       setFriends([]);
@@ -150,31 +88,8 @@ export function Friends() {
     try {
       if (!currentUser) return;
 
-      const { data, error } = await supabase
-        .from('friends')
-        .select(`
-          id,
-          created_at,
-          sender_id,
-          sender_profile:profiles!friends_sender_id_fkey(id, name, username, avatar)
-        `)
-        .eq('status', 'pending')
-        .eq('receiver_id', currentUser.id);
-
-      if (error) throw error;
-
-      const requestsList = data?.map(request => ({
-        id: request.sender_profile.id,
-        name: request.sender_profile.name,
-        username: request.sender_profile.username,
-        avatar: request.sender_profile.avatar,
-        status: 'pending' as const,
-        created_at: request.created_at,
-        friend_id: request.id,
-        sender_id: request.sender_id
-      })) || [];
-
-      setRequests(requestsList);
+      // For now, set empty requests since we don't have the friends collection set up yet
+      setRequests([]);
     } catch (error) {
       console.error('Error fetching friend requests:', error);
     }
@@ -184,37 +99,8 @@ export function Friends() {
     try {
       if (!currentUser) return;
 
-      // Get users who are not already friends or have pending requests
-      const { data: existingConnections } = await supabase
-        .from('friends')
-        .select('sender_id, receiver_id')
-        .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
-
-      const connectedUserIds = new Set();
-      existingConnections?.forEach(conn => {
-        connectedUserIds.add(conn.sender_id);
-        connectedUserIds.add(conn.receiver_id);
-      });
-      connectedUserIds.add(currentUser.id); // Exclude current user
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name, username, avatar, created_at')
-        .not('id', 'in', `(${Array.from(connectedUserIds).join(',')})`)
-        .limit(10);
-
-      if (error) throw error;
-
-      const suggestedList = data?.map(profile => ({
-        id: profile.id,
-        name: profile.name,
-        username: profile.username,
-        avatar: profile.avatar,
-        status: 'suggested' as const,
-        created_at: profile.created_at
-      })) || [];
-
-      setSuggested(suggestedList);
+      // For now, set empty suggested since we don't have the users collection properly set up yet
+      setSuggested([]);
     } catch (error) {
       console.error('Error fetching suggested friends:', error);
     } finally {
@@ -226,33 +112,10 @@ export function Friends() {
     try {
       if (!currentUser) return;
 
-      const { error } = await supabase
-        .from('friends')
-        .insert({
-          sender_id: currentUser.id,
-          receiver_id: userId,
-          status: 'pending'
-        });
-
-      if (error) {
-        if (error.code === '23505') { // Unique constraint violation
-          toast({
-            variant: 'destructive',
-            title: 'Request already sent',
-            description: 'You have already sent a friend request to this user',
-          });
-        } else {
-          throw error;
-        }
-      } else {
-        // Remove from suggested list
-        setSuggested(prev => prev.filter(user => user.id !== userId));
-
-        toast({
-          title: 'Friend request sent!',
-          description: 'Your friend request has been sent successfully',
-        });
-      }
+      toast({
+        title: 'Friend request feature coming soon!',
+        description: 'This feature will be available in the next update.',
+      });
     } catch (error) {
       console.error('Error sending friend request:', error);
       toast({
@@ -265,50 +128,9 @@ export function Friends() {
 
   const acceptFriendRequest = async (request: Friend) => {
     try {
-      if (!request.friend_id) return;
-      
-      setProcessingRequest(request.id);
-
-      const { error } = await supabase
-        .from('friends')
-        .update({ status: 'accepted' })
-        .eq('id', request.friend_id);
-
-      if (error) throw error;
-
-      // Create notification for the requester
-      try {
-        const { data: currentUserProfile } = await supabase
-          .from('profiles')
-          .select('name')
-          .eq('id', currentUser.id)
-          .single();
-
-        const userName = currentUserProfile?.name || 'Someone';
-
-        await supabase
-          .from('notifications')
-          .insert({
-            user_id: request.sender_id,
-            type: 'friend_accepted',
-            content: `${userName} accepted your friend request`,
-            reference_id: request.friend_id,
-            read: false
-          });
-      } catch (notifError) {
-        console.log('Notification creation handled:', notifError);
-      }
-
-      // Refresh all lists
-      await Promise.all([
-        fetchFriends(),
-        fetchFriendRequests(),
-        fetchSuggestedFriends()
-      ]);
-
       toast({
-        title: 'Friend request accepted',
-        description: 'You are now friends!',
+        title: 'Friend request feature coming soon!',
+        description: 'This feature will be available in the next update.',
       });
     } catch (error) {
       console.error('Error accepting friend request:', error);
@@ -324,46 +146,9 @@ export function Friends() {
 
   const rejectFriendRequest = async (request: Friend) => {
     try {
-      if (!request.friend_id) return;
-      
-      setProcessingRequest(request.id);
-
-      const { error } = await supabase
-        .from('friends')
-        .delete()
-        .eq('id', request.friend_id);
-
-      if (error) throw error;
-
-      // Create notification for the requester
-      try {
-        const { data: currentUserProfile } = await supabase
-          .from('profiles')
-          .select('name')
-          .eq('id', currentUser.id)
-          .single();
-
-        const userName = currentUserProfile?.name || 'Someone';
-
-        await supabase
-          .from('notifications')
-          .insert({
-            user_id: request.sender_id,
-            type: 'friend_rejected',
-            content: `${userName} declined your friend request`,
-            reference_id: request.friend_id,
-            read: false
-          });
-      } catch (notifError) {
-        console.log('Notification creation handled:', notifError);
-      }
-
-      // Remove from requests list
-      setRequests(prev => prev.filter(req => req.friend_id !== request.friend_id));
-
       toast({
-        title: 'Friend request rejected',
-        description: 'The friend request has been declined',
+        title: 'Friend request feature coming soon!',
+        description: 'This feature will be available in the next update.',
       });
     } catch (error) {
       console.error('Error rejecting friend request:', error);

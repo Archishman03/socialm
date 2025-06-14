@@ -6,7 +6,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Send, Image as ImageIcon, X } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db, storage } from '@/config/firebase';
+import { collection, addDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -91,9 +93,9 @@ export function Dashboard() {
 
     try {
       setIsPosting(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      const currentUser = auth.currentUser;
       
-      if (!user) {
+      if (!currentUser) {
         toast({
           variant: 'destructive',
           title: 'Error',
@@ -107,30 +109,21 @@ export function Dashboard() {
       // Upload image if selected
       if (selectedImage) {
         const fileExt = selectedImage.name.split('.').pop();
-        const fileName = `${user.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const fileName = `${currentUser.uid}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const storageRef = ref(storage, `posts/${fileName}`);
         
-        const { error: uploadError } = await supabase.storage
-          .from('posts')
-          .upload(fileName, selectedImage);
-
-        if (uploadError) throw uploadError;
-
-        const { data } = supabase.storage
-          .from('posts')
-          .getPublicUrl(fileName);
-
-        imageUrl = data.publicUrl;
+        const snapshot = await uploadBytes(storageRef, selectedImage);
+        imageUrl = await getDownloadURL(snapshot.ref);
       }
 
-      const { error } = await supabase
-        .from('posts')
-        .insert({
-          content: postContent.trim(),
-          user_id: user.id,
-          image_url: imageUrl
-        });
-
-      if (error) throw error;
+      const postsRef = collection(db, 'posts');
+      await addDoc(postsRef, {
+        content: postContent.trim(),
+        user_id: currentUser.uid,
+        image_url: imageUrl,
+        created_at: new Date(),
+        updated_at: new Date()
+      });
 
       setPostContent('');
       removeImage();

@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Camera, Edit, Save, X, Heart, Trash2, Palette, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db, storage } from '@/config/firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DeleteAccountDialog } from '@/components/user/DeleteAccountDialog';
 import { useNavigate } from 'react-router-dom';
@@ -51,22 +53,43 @@ export default function UserProfile() {
 
   const fetchUserProfile = async () => {
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authUser.id)
-        .single();
+      const userRef = doc(db, 'users', currentUser.uid);
+      const userDoc = await getDoc(userRef);
 
-      if (error) throw error;
-
-      if (data) {
-        setUser(data);
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setUser({
+          id: currentUser.uid,
+          name: data.name || currentUser.displayName || '',
+          username: data.username || '',
+          email: currentUser.email || '',
+          avatar: data.avatar || currentUser.photoURL || '',
+          created_at: data.created_at?.toDate?.()?.toISOString() || new Date().toISOString(),
+          updated_at: data.updated_at?.toDate?.()?.toISOString() || new Date().toISOString()
+        });
         setEditForm({
-          name: data.name || '',
+          name: data.name || currentUser.displayName || '',
           username: data.username || ''
+        });
+      } else {
+        // Create user document if it doesn't exist
+        const userData = {
+          name: currentUser.displayName || '',
+          username: '',
+          email: currentUser.email || '',
+          avatar: currentUser.photoURL || '',
+          created_at: new Date(),
+          updated_at: new Date()
+        };
+        await updateDoc(userRef, userData);
+        setUser({
+          id: currentUser.uid,
+          ...userData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         });
       }
     } catch (error) {
@@ -83,42 +106,14 @@ export default function UserProfile() {
 
   const fetchUserStats = async () => {
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
 
-      // Get posts count
-      const { count: postsCount } = await supabase
-        .from('posts')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', authUser.id);
-
-      // Get friends count
-      const { count: friendsCount } = await supabase
-        .from('friends')
-        .select('*', { count: 'exact', head: true })
-        .or(`sender_id.eq.${authUser.id},receiver_id.eq.${authUser.id}`)
-        .eq('status', 'accepted');
-
-      // Get likes received count
-      const { data: userPosts } = await supabase
-        .from('posts')
-        .select('id')
-        .eq('user_id', authUser.id);
-
-      let likesCount = 0;
-      if (userPosts && userPosts.length > 0) {
-        const { count } = await supabase
-          .from('likes')
-          .select('*', { count: 'exact', head: true })
-          .in('post_id', userPosts.map(post => post.id));
-        
-        likesCount = count || 0;
-      }
-
+      // For now, set default stats since we don't have the collections set up yet
       setStats({
-        posts: postsCount || 0,
-        friends: friendsCount || 0,
-        likes: likesCount
+        posts: 0,
+        friends: 0,
+        likes: 0
       });
     } catch (error) {
       console.error('Error fetching user stats:', error);
@@ -134,24 +129,16 @@ export default function UserProfile() {
 
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}-${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
+      const storageRef = ref(storage, `avatars/${fileName}`);
 
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
 
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ avatar: data.publicUrl })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
+      const userRef = doc(db, 'users', user.id);
+      await updateDoc(userRef, { 
+        avatar: downloadURL,
+        updated_at: new Date()
+      });
 
       await fetchUserProfile();
 
@@ -173,18 +160,15 @@ export default function UserProfile() {
 
   const handleSave = async () => {
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          name: editForm.name,
-          username: editForm.username,
-        })
-        .eq('id', authUser.id);
-
-      if (error) throw error;
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, {
+        name: editForm.name,
+        username: editForm.username,
+        updated_at: new Date()
+      });
 
       await fetchUserProfile();
       setIsEditing(false);

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { supabase } from '@/integrations/supabase/client';
+import { auth, db } from '@/config/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 type Theme = 'light' | 'dark' | 'win95';
 type ColorTheme = 'green' | 'blue' | 'red' | 'orange' | 'purple';
@@ -22,29 +23,15 @@ const customStorage = {
 
     // If not in localStorage, try to get from database
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('theme_preference, color_theme')
-          .eq('id', user.id)
-          .single();
-        
-        if (data?.theme_preference) {
-          // Save to localStorage for faster access next time
-          localStorage.setItem(name, JSON.stringify({ 
-            state: { 
-              theme: data.theme_preference,
-              colorTheme: data.color_theme || 'green'
-            } 
-          }));
-          return JSON.stringify({ 
-            state: { 
-              theme: data.theme_preference,
-              colorTheme: data.color_theme || 'green'
-            } 
-          });
-        }
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        // For now, just return default since we don't have the user profile structure set up
+        return JSON.stringify({ 
+          state: { 
+            theme: 'light',
+            colorTheme: 'green'
+          } 
+        });
       }
     } catch (error) {
       console.error('Error fetching theme from database:', error);
@@ -60,16 +47,15 @@ const customStorage = {
 
     // Save to database if user is logged in
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
         const { theme, colorTheme } = JSON.parse(value).state;
-        await supabase
-          .from('profiles')
-          .update({ 
-            theme_preference: theme,
-            color_theme: colorTheme
-          })
-          .eq('id', user.id);
+        const userRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(userRef, { 
+          theme_preference: theme,
+          color_theme: colorTheme,
+          updated_at: new Date()
+        });
       }
     } catch (error) {
       console.error('Error saving theme to database:', error);
